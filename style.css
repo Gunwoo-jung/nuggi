@@ -79,11 +79,54 @@ button.primary { background: var(--accent); color: var(--accent-fg); border-colo
 button.ghost { background: transparent; }
 button:disabled { opacity: .4; cursor: default; }
 
+.editor { width: min(1000px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); max-width: none; max-height: none;
+  border: 1px solid var(--line); border-radius: 16px; padding: 0; background: var(--bg); color: var(--fg); overflow: hidden; }
+.editor::backdrop { background: rgba(10, 12, 18, .72); }
+.editor-shell { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.editor-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.editor-tools { display: flex; align-items: center; gap: 10px; }
+.editor-tool { flex-wrap: nowrap; }
+.editor-hint { min-height: 1.5em; margin: 8px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.editor-hint.error { color: #c62828; }
+.editor-options { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; }
+.brush-control { display: flex; align-items: center; gap: 8px; }
+.brush-control input { width: min(220px, 36vw); accent-color: var(--fg); }
+.brush-control output { min-width: 42px; color: var(--muted); }
+.overlay-control { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.overlay-control input { accent-color: var(--fg); }
+.editor-workspace { position: relative; min-height: 0; overflow: hidden; background-color: #fff;
+  background-image: linear-gradient(45deg, #e6e8ec 25%, transparent 25%), linear-gradient(-45deg, #e6e8ec 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e6e8ec 75%), linear-gradient(-45deg, transparent 75%, #e6e8ec 75%);
+  background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0; }
+.editor-workspace.solid { background-image: none; }
+#editorCanvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.editor-busy { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(20, 22, 28, .55); color: #fff; font-size: 18px; font-weight: 600; }
+.editor-busy[hidden] { display: none; }
+.editor-footer { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.editor-error { flex: 1; color: #c62828; font-size: 12px; }
+.editor-actions { display: flex; gap: 8px; }
+
 .foot { max-width: 960px; margin: 0 auto; width: 100%; padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+@media (max-width: 640px) {
+  .editor { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .editor-head { padding: calc(8px + env(safe-area-inset-top)) 10px 8px; }
+  .editor-tools { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .editor-tool { width: 100%; justify-content: space-between; }
+  .editor-tool span { padding: 7px 8px; font-size: 12px; }
+  .editor-hint { margin: 6px 0; font-size: 12px; }
+  .editor-options { gap: 8px; font-size: 12px; }
+  .brush-control { gap: 5px; }
+  .brush-control input { width: min(150px, 35vw); }
+  .editor-footer { padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
+  .editor-footer button { padding: 8px 10px; }
+  .editor-actions { gap: 6px; }
+}
 
 @media (prefers-color-scheme: dark) {
   :root { --bg: #14161c; --fg: #eef0f4; --muted: #9aa0ad; --card: #1d2028; --line: #2d313b; --accent: #eef0f4; --accent-fg: #14161c; }
   .drop { border-color: #3a3f4b; }
   .drop.over, .drop:hover, .drop:focus-visible { background: #22252e; }
   .seg input[type=radio]:checked + span small { color: #555b68; }
+  .editor-workspace { background-color: #fff; }
 }

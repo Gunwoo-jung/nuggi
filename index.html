@@ -95,11 +95,45 @@
       <div class="actions">
         <button type="button" class="save primary" disabled>PNG 저장</button>
         <button type="button" class="share" disabled hidden>공유·사진에 저장</button>
+        <button type="button" class="edit" disabled>직접 수정</button>
         <button type="button" class="redo ghost" disabled>현재 모드로 다시</button>
         <button type="button" class="remove ghost">삭제</button>
       </div>
     </li>
   </template>
+
+  <dialog id="editor" class="editor">
+    <div class="editor-shell">
+      <header class="editor-head">
+        <div class="editor-tools">
+          <span class="label">도구</span>
+          <div class="seg editor-tool" role="radiogroup" aria-label="직접 수정 도구">
+            <label><input type="radio" name="tool" value="rerun" checked><span>다시 보기</span></label>
+            <label><input type="radio" name="tool" value="erase"><span>지우기</span></label>
+            <label><input type="radio" name="tool" value="restore"><span>살리기</span></label>
+            <label><input type="radio" name="tool" value="pan"><span>이동</span></label>
+          </div>
+        </div>
+        <p id="editorHint" class="editor-hint">머리카락이나 어두운 부분이 날아간 곳을 문지르세요. 그 부분만 크게 잘라 AI가 다시 봅니다.</p>
+        <div class="editor-options">
+          <label class="brush-control"><span>브러시 크기</span><input id="brushSize" type="range" min="4" max="200" value="40"><output id="brushValue" for="brushSize">40px</output></label>
+          <label class="overlay-control"><input id="editorOverlay" type="checkbox">원본 겹쳐 보기</label>
+        </div>
+      </header>
+      <div id="editorWorkspace" class="editor-workspace">
+        <canvas id="editorCanvas" aria-label="결과 직접 수정 캔버스"></canvas>
+        <div id="editorBusy" class="editor-busy" hidden>다시 보는 중…</div>
+      </div>
+      <footer class="editor-footer">
+        <button type="button" id="editorUndo" disabled>실행 취소</button>
+        <span id="editorError" class="editor-error" aria-live="polite"></span>
+        <div class="editor-actions">
+          <button type="button" id="editorCancel">취소</button>
+          <button type="button" id="editorApply" class="primary">적용</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>
