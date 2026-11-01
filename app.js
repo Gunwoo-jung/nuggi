@@ -307,6 +307,13 @@ $('#clearAll').addEventListener('click', () => [...items].forEach(removeItem));
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+  // 서비스 워커가 격리 헤더를 붙이도록 최초 1회만 새로고침 (이미지를 넣기 전일 때만)
+  navigator.serviceWorker.ready.then(() => {
+    if (!window.crossOriginIsolated && items.size === 0 && !sessionStorage.getItem('coi-reload')) {
+      sessionStorage.setItem('coi-reload', '1');
+      location.reload();
+    }
+  });
 }
 function updateOffline() {
   $('#offline').textContent = navigator.onLine ? '' : '오프라인 상태 · 정상 동작 중';
