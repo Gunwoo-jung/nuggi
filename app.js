@@ -57,16 +57,23 @@ function makeCanvas(w, h) {
 }
 
 async function decode(file) {
-  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  let w = bmp.width, h = bmp.height;
-  const scale = Math.min(1, Math.sqrt(MAX_PIXELS / (w * h)));
-  w = Math.round(w * scale); h = Math.round(h * scale);
-  const c = makeCanvas(w, h);
-  const ctx = c.getContext('2d');
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(bmp, 0, 0, w, h);
-  bmp.close?.();
-  return c;
+  // <img>는 모든 브라우저에서 EXIF 회전을 적용해 화면에 보이는 방향 그대로 디코딩한다
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(1, Math.sqrt(MAX_PIXELS / (w * h)));
+    w = Math.round(w * scale); h = Math.round(h * scale);
+    const c = makeCanvas(w, h);
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    return c;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function inputSize(model, w, h) {
@@ -98,7 +105,7 @@ function toTensor(src, model) {
 }
 
 function applyMask(src, alpha, mw, mh) {
-  // 가장자리 정리: 약한 알파(배경 잔여물)는 0으로, 거의 불투명한 부분은 255로 당김
+  // 잔여물 제거: 약한 알파(배경 잔여물)는 0으로, 거의 불투명한 부분은 255로 당김
   const s = Number($('#refine').value) / 100;
   const lo = 0.5 * s, hi = 1 - 0.3 * s, k = 1 / (hi - lo);
   const mask = new ImageData(mw, mh);
@@ -184,6 +191,10 @@ async function addFile(file) {
   el.querySelector('.redo').addEventListener('click', () => enqueue(item));
   el.querySelector('.remove').addEventListener('click', () => removeItem(item));
 
+  item.orig.addEventListener('load', () => {
+    const { naturalWidth: w, naturalHeight: h } = item.orig;
+    if (w && h) item.stage.style.aspectRatio = `${w} / ${h}`;
+  }, { once: true });
   setUrl(item.orig, file);
   enqueue(item);
 }

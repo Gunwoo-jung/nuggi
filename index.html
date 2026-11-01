@@ -25,8 +25,8 @@
       <div class="field">
         <span class="label">모드</span>
         <div class="seg" role="radiogroup" aria-label="모드">
-          <label><input type="radio" name="model" value="general" checked><span>일반 <small>사물·인물</small></span></label>
-          <label><input type="radio" name="model" value="portrait"><span>인물 <small>빠름·머리카락</small></span></label>
+          <label><input type="radio" name="model" value="general" checked><span>일반 <small>전신·사물 (권장)</small></span></label>
+          <label><input type="radio" name="model" value="portrait"><span>얼굴·상반신 <small>빠름</small></span></label>
         </div>
       </div>
       <div class="field">
@@ -39,9 +39,9 @@
         </div>
       </div>
       <div class="field refine">
-        <span class="label">가장자리 정리</span>
-        <input type="range" id="refine" min="0" max="100" value="20" aria-label="가장자리 정리 강도">
-        <output id="refineVal">20</output>
+        <span class="label" title="높일수록 배경 잔여물이 지워지지만 가는 머리카락도 함께 사라질 수 있어요">잔여물 제거</span>
+        <input type="range" id="refine" min="0" max="100" value="0" aria-label="배경 잔여물 제거 강도 (높이면 가는 머리카락도 지워질 수 있음)">
+        <output id="refineVal">0</output>
       </div>
     </section>
 
