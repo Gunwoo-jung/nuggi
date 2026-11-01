@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- connect-src 'self': 페이지가 외부 서버로 어떤 데이터도 보낼 수 없도록 브라우저 차원에서 차단 -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' blob: data:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#1f2330">
+  <title>누끼 · 로컬 배경 제거</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>누끼</h1>
+    <p class="privacy">이미지는 이 기기 안에서만 처리됩니다. 서버로 전송하지 않고 저장하지도 않습니다.</p>
+  </header>
+
+  <main>
+    <section class="controls">
+      <div class="field">
+        <span class="label">모드</span>
+        <div class="seg" role="radiogroup" aria-label="모드">
+          <label><input type="radio" name="model" value="general" checked><span>일반 <small>사물·인물</small></span></label>
+          <label><input type="radio" name="model" value="portrait"><span>인물 <small>빠름·머리카락</small></span></label>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">배경</span>
+        <div class="seg" role="radiogroup" aria-label="배경">
+          <label><input type="radio" name="bg" value="transparent" checked><span>투명</span></label>
+          <label><input type="radio" name="bg" value="#ffffff"><span>흰색</span></label>
+          <label><input type="radio" name="bg" value="#000000"><span>검정</span></label>
+          <label class="color"><input type="radio" name="bg" value="custom"><span><input type="color" id="bgColor" value="#4f7cff" aria-label="배경 색상"></span></label>
+        </div>
+      </div>
+      <div class="field refine">
+        <span class="label">가장자리 정리</span>
+        <input type="range" id="refine" min="0" max="100" value="20" aria-label="가장자리 정리 강도">
+        <output id="refineVal">20</output>
+      </div>
+    </section>
+
+    <label id="drop" class="drop" tabindex="0">
+      <input id="file" type="file" accept="image/*" multiple hidden>
+      <strong>이미지를 선택하거나 끌어다 놓으세요</strong>
+      <span>붙여넣기(Ctrl/⌘+V)도 됩니다 · 여러 장 가능</span>
+    </label>
+
+    <div id="status" class="status" hidden>
+      <span id="statusText"></span>
+      <progress id="statusBar" max="1" value="0"></progress>
+    </div>
+
+    <div class="list-head" id="listHead" hidden>
+      <span id="count"></span>
+      <button type="button" id="clearAll" class="ghost">모두 지우기</button>
+    </div>
+    <ul id="list" class="list"></ul>
+  </main>
+
+  <footer class="foot">
+    <span id="offline"></span>
+    <span>새로고침하거나 탭을 닫으면 모든 이미지가 메모리에서 사라집니다.</span>
+  </footer>
+
+  <template id="itemTpl">
+    <li class="item">
+      <div class="stage" data-bg="transparent">
+        <img class="orig" alt="원본">
+        <img class="res" alt="결과">
+        <div class="spinner"></div>
+        <input class="cmp" type="range" min="0" max="100" value="0" aria-label="원본과 비교">
+      </div>
+      <div class="meta">
+        <span class="name"></span>
+        <span class="state"></span>
+      </div>
+      <div class="actions">
+        <button type="button" class="save primary" disabled>PNG 저장</button>
+        <button type="button" class="share" disabled hidden>공유·사진에 저장</button>
+        <button type="button" class="redo ghost" disabled>현재 모드로 다시</button>
+        <button type="button" class="remove ghost">삭제</button>
+      </div>
+    </li>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
