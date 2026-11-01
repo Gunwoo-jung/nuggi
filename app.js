@@ -691,6 +691,7 @@ function disposeEditor(state) {
   if (state.source) state.source.data.fill(0);
   if (state.stroke?.mask) state.stroke.mask.fill(0);
   if (state.stroke?.core) state.stroke.core.fill(0);
+  if (state.stroke?.mid) state.stroke.mid.fill(0);
   if (state.stroke?.before) state.stroke.before.clear();
   for (const diff of state.undo) diff.prev.fill(0);
   state.undo.length = 0;
@@ -820,7 +821,10 @@ function paintEditorStamp(state, stroke, x, y) {
       const index = py * state.width + px;
       if (stroke.tool === 'rerun' || stroke.tool === 'hair') {
         stroke.mask[index] = 1;
-        if (stroke.tool === 'hair' && distance <= Math.max(1, radius * 0.28)) stroke.core[index] = 1;
+        if (stroke.tool === 'hair') {
+          if (distance <= Math.max(1, radius * 0.28)) stroke.core[index] = 1;
+          if (distance <= radius * 0.55) stroke.mid[index] = 1;
+        }
         continue;
       }
       const k = distance <= radius * 0.7 ? 1 : (radius - distance) / (radius * 0.3);
@@ -883,6 +887,7 @@ function rollbackEditorStroke(state) {
   }
   if (stroke.mask) stroke.mask.fill(0);
   if (stroke.core) stroke.core.fill(0);
+  if (stroke.mid) stroke.mid.fill(0);
   stroke.before.clear();
   state.highlightContext.clearRect(0, 0, state.width, state.height);
   state.stroke = null;
@@ -948,6 +953,7 @@ editorCanvas.addEventListener('pointerdown', (event) => {
     tool, radius, last: image, before: new Map(),
     mask: tool === 'rerun' || tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
     core: tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
+    mid: tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
     x0: null, y0: null, x1: null, y1: null,
   };
   state.strokePointer = event.pointerId;
@@ -1175,8 +1181,9 @@ async function runEditorHair(state, stroke) {
   const cropWidth = Math.max(1, Math.round(sourceWidth * scale));
   const cropHeight = Math.max(1, Math.round(sourceHeight * scale));
 
-  let crop = null, previous = null, selection = null, core = null;
-  let cropAlpha = null, cropSelection = null, cropCore = null, trimap = null;
+  let crop = null, previous = null, selection = null, core = null, midMask = null;
+  let cropAlpha = null, cropSelection = null, cropCore = null, cropMid = null, trimap = null;
+  let pixels = null, dilated = null, ring = null, den = null, weighted = null, distanceSq = null;
   let matteAlpha = null, newAlpha = null, weights = null, diff = null;
   let keepDiff = false, changed = false;
   state.busy = true;
@@ -1197,26 +1204,56 @@ async function runEditorHair(state, stroke) {
     previous = new Float32Array(area);
     selection = new Float32Array(area);
     core = new Float32Array(area);
+    midMask = new Float32Array(area);
     for (let row = 0; row < height; row++) {
       const sourceOffset = (y + row) * state.width + x;
       const destOffset = row * width;
       previous.set(state.alpha.subarray(sourceOffset, sourceOffset + width), destOffset);
       selection.set(stroke.mask.subarray(sourceOffset, sourceOffset + width), destOffset);
       core.set(stroke.core.subarray(sourceOffset, sourceOffset + width), destOffset);
+      midMask.set(stroke.mid.subarray(sourceOffset, sourceOffset + width), destOffset);
     }
     diff = { x, y, w: width, h: height, prev: previous };
     cropAlpha = resizeBilinear(previous, width, height, cropWidth, cropHeight);
     cropSelection = resizeBilinear(selection, width, height, cropWidth, cropHeight);
     cropCore = resizeBilinear(core, width, height, cropWidth, cropHeight);
+    cropMid = resizeBilinear(midMask, width, height, cropWidth, cropHeight);
+    pixels = cropContext.getImageData(0, 0, cropWidth, cropHeight).data;
+    const cropArea = cropWidth * cropHeight;
+    const cropRadius = Math.max(1, Math.round(radius * cropWidth / width));
+    dilated = boxBlur(cropSelection, cropWidth, cropHeight, Math.max(1, Math.round(cropRadius / 2)));
+    ring = new Float32Array(cropArea);
+    for (let i = 0; i < cropArea; i++) {
+      if (dilated[i] > 0 && cropSelection[i] <= 0.5 && cropAlpha[i] < 0.1) ring[i] = 1;
+    }
+    dilated.fill(0);
+    den = boxBlur(ring, cropWidth, cropHeight, cropRadius);
+    weighted = new Float32Array(cropArea);
+    distanceSq = new Float32Array(cropArea);
+    for (let channel = 0; channel < 3; channel++) {
+      for (let i = 0; i < cropArea; i++) weighted[i] = pixels[i * 4 + channel] / 255 * ring[i];
+      const blurred = boxBlur(weighted, cropWidth, cropHeight, cropRadius);
+      for (let i = 0; i < cropArea; i++) {
+        const difference = pixels[i * 4 + channel] / 255 - blurred[i] / (den[i] + 1e-6);
+        distanceSq[i] += difference * difference;
+      }
+      blurred.fill(0);
+    }
     trimap = makeTrimap(cropAlpha, cropWidth, cropHeight);
     for (let i = 0; i < trimap.length; i++) {
-      if (cropSelection[i] > 0.5) trimap[i] = 0.5;
+      const inStroke = cropSelection[i] > 0.5;
+      if (inStroke) trimap[i] = 0.5;
+      if (inStroke && cropMid[i] <= 0.5 && den[i] > 0.01 && Math.sqrt(distanceSq[i]) < 0.05) trimap[i] = 0;
       if (cropCore[i] > 0.5) trimap[i] = 1;
     }
     stroke.mask.fill(0);
     stroke.core.fill(0);
+    stroke.mid.fill(0);
 
     matteAlpha = await runMatte(crop, trimap);
+    for (let i = 0; i < matteAlpha.length; i++) {
+      if (cropSelection[i] > 0.5) matteAlpha[i] = Math.max(0, Math.min(1, (matteAlpha[i] - 0.2) / 0.65));
+    }
     newAlpha = resizeBilinear(matteAlpha, cropWidth, cropHeight, width, height);
     weights = boxBlur(selection, width, height, Math.max(2, Math.round(radius / 3)));
     for (let i = 0; i < area; i++) {
@@ -1254,12 +1291,21 @@ async function runEditorHair(state, stroke) {
     if (crop) crop.width = crop.height = 0;
     if (stroke.mask) stroke.mask.fill(0);
     if (stroke.core) stroke.core.fill(0);
+    if (stroke.mid) stroke.mid.fill(0);
     if (selection) selection.fill(0);
     if (core) core.fill(0);
+    if (midMask) midMask.fill(0);
     if (cropAlpha) cropAlpha.fill(0);
     if (cropSelection) cropSelection.fill(0);
     if (cropCore) cropCore.fill(0);
+    if (cropMid) cropMid.fill(0);
     if (trimap) trimap.fill(0);
+    if (dilated) dilated.fill(0);
+    if (ring) ring.fill(0);
+    if (den) den.fill(0);
+    if (weighted) weighted.fill(0);
+    if (distanceSq) distanceSq.fill(0);
+    if (pixels) pixels.fill(0);
     if (matteAlpha) matteAlpha.fill(0);
     if (newAlpha) newAlpha.fill(0);
     if (weights) weights.fill(0);
