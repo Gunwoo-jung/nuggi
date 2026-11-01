@@ -305,13 +305,20 @@ $('#bgColor').addEventListener('click', () => {
   items.forEach(applyBgTo);
 });
 let refineTimer;
-$('#refine').addEventListener('input', (e) => {
-  $('#refineVal').textContent = e.target.value;
+function setRefine(value) {
+  const v = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  $('#refine').value = v;
+  $('#refineNum').value = v;
+  for (const r of document.querySelectorAll('input[name=refineP]')) r.checked = Number(r.value) === v;
   clearTimeout(refineTimer);
   refineTimer = setTimeout(() => {
     for (const item of items) if (item.mask && !item.el.classList.contains('busy')) render(item);
   }, 120);
-});
+}
+$('#refine').addEventListener('input', (e) => setRefine(e.target.value));
+$('#refineNum').addEventListener('change', (e) => setRefine(e.target.value));
+$('#refineNum').addEventListener('input', (e) => { if (e.target.value !== '' && e.target.validity.valid) setRefine(e.target.value); });
+for (const r of document.querySelectorAll('input[name=refineP]')) r.addEventListener('change', () => setRefine(r.value));
 $('#clearAll').addEventListener('click', () => [...items].forEach(removeItem));
 
 /* ---------- offline support ---------- */

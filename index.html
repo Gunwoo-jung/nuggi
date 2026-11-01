@@ -39,9 +39,17 @@
         </div>
       </div>
       <div class="field refine">
-        <span class="label" title="높일수록 배경 잔여물이 지워지지만 가는 머리카락도 함께 사라질 수 있어요">잔여물 제거</span>
-        <input type="range" id="refine" min="0" max="100" value="0" aria-label="배경 잔여물 제거 강도 (높이면 가는 머리카락도 지워질 수 있음)">
-        <output id="refineVal">0</output>
+        <span class="label">잔여물 제거</span>
+        <div class="seg" role="radiogroup" aria-label="잔여물 제거 빠른 선택">
+            <label><input type="radio" name="refineP" value="0" checked><span>0%</span></label>
+            <label><input type="radio" name="refineP" value="25"><span>25%</span></label>
+            <label><input type="radio" name="refineP" value="50"><span>50%</span></label>
+            <label><input type="radio" name="refineP" value="75"><span>75%</span></label>
+            <label><input type="radio" name="refineP" value="100"><span>100%</span></label>
+        </div>
+        <input type="range" id="refine" min="0" max="100" step="1" value="0" aria-label="잔여물 제거 강도">
+        <label class="num"><input type="number" id="refineNum" min="0" max="100" step="1" value="0" inputmode="numeric" aria-label="잔여물 제거 강도 직접 입력">%</label>
+        <p class="hint">가장자리에 남은 흐릿한 배경 흔적(그림자, 배경색 번짐)을 지웁니다. 0%는 AI 결과 그대로이고, 높일수록 깔끔해지지만 가는 머리카락·털·반투명한 부분도 함께 지워질 수 있어요. 바꾸면 결과에 바로 반영됩니다.</p>
       </div>
     </section>
 

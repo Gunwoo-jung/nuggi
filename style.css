@@ -23,8 +23,12 @@ main { width: 100%; max-width: 960px; margin: 0 auto; padding: 0 16px 24px; flex
 .seg input[type=radio]:checked + span { background: var(--accent); color: var(--accent-fg); }
 .seg input[type=radio]:checked + span small { color: #c9ccd6; }
 .seg input[type=radio]:focus-visible + span { outline: 2px solid var(--hl); }
-.refine { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.refine input { width: 140px; accent-color: var(--fg); }
+.refine { flex-wrap: wrap; font-size: 13px; }
+.refine input[type=range] { width: 140px; accent-color: var(--fg); }
+.refine .seg span { padding: 6px 9px; font-size: 13px; }
+.refine .num { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); }
+.refine input[type=number] { width: 56px; font: inherit; font-size: 14px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); }
+.refine .hint { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .seg .color span { padding: 4px 8px; }
 #bgColor { width: 28px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
 
