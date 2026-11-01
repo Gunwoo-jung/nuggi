@@ -90,6 +90,7 @@ button:disabled { opacity: .4; cursor: default; }
 .editor-hint.error { color: #c62828; }
 .editor-options { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; }
 .brush-control { display: flex; align-items: center; gap: 8px; }
+.brush-control.disabled { opacity: .45; }
 .brush-control input { width: min(220px, 36vw); accent-color: var(--fg); }
 .brush-control output { min-width: 42px; color: var(--muted); }
 .overlay-control { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

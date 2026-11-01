@@ -595,7 +595,7 @@ const editorHint = $('#editorHint');
 const editorBusy = $('#editorBusy');
 const editorUndo = $('#editorUndo');
 const editorToolHints = {
-  hair: '머리카락 가운데를 따라 넉넉하게 그리세요. 그은 선의 가운데는 머리카락으로 두고, 주변은 AI가 머리카락과 배경을 나눕니다.',
+  hair: '머리카락이 있는 곳을 따라 선을 그으세요. 브러시 크기와 상관없이 선 주변을 AI가 살펴서 머리카락만 살리고 배경은 뺍니다. 확대하면 더 좁은 범위를 자세히 봅니다.',
   rerun: '머리카락이나 어두운 부분이 날아간 곳을 문지르세요. 그 부분만 크게 잘라 AI가 다시 봅니다.',
   erase: '남은 배경을 문질러 지웁니다.',
   restore: '잘못 지워진 부분을 문질러 원본에서 되살립니다.',
@@ -615,7 +615,10 @@ function showEditorHint(text, error = false) {
 function updateEditorControls() {
   if (!editorState) return;
   const disabled = editorState.busy || editorState.applying;
+  const hairTool = editorTool() === 'hair';
   for (const control of editorDialog.querySelectorAll('input,button')) control.disabled = disabled;
+  $('#brushSize').disabled = disabled || hairTool;
+  editorDialog.querySelector('.brush-control').classList.toggle('disabled', hairTool);
   editorUndo.disabled = disabled || editorState.undo.length === 0;
   $('#editorApply').disabled = disabled;
   $('#editorCancel').disabled = disabled;
@@ -690,8 +693,6 @@ function disposeEditor(state) {
   if (state.composite) state.composite.data.fill(0);
   if (state.source) state.source.data.fill(0);
   if (state.stroke?.mask) state.stroke.mask.fill(0);
-  if (state.stroke?.core) state.stroke.core.fill(0);
-  if (state.stroke?.mid) state.stroke.mid.fill(0);
   if (state.stroke?.before) state.stroke.before.clear();
   for (const diff of state.undo) diff.prev.fill(0);
   state.undo.length = 0;
@@ -769,14 +770,14 @@ function drawEditor() {
   if (state.stroke?.tool === 'rerun' || state.stroke?.tool === 'hair') ctx.drawImage(state.highlightCanvas, 0, 0);
   if (state.cursor && !state.busy) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const size = Number($('#brushSize').value);
+    const radius = editorTool() === 'hair' ? 3 : Number($('#brushSize').value) / 2;
     ctx.beginPath();
-    ctx.arc(state.cursor.x, state.cursor.y, size / 2, 0, Math.PI * 2);
+    ctx.arc(state.cursor.x, state.cursor.y, radius, 0, Math.PI * 2);
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = editorTool() === 'rerun' || editorTool() === 'hair' ? '#537aff' : '#fff';
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(state.cursor.x, state.cursor.y, size / 2 + 1, 0, Math.PI * 2);
+    ctx.arc(state.cursor.x, state.cursor.y, radius + 1, 0, Math.PI * 2);
     ctx.lineWidth = 1;
     ctx.strokeStyle = 'rgba(0,0,0,.7)';
     ctx.stroke();
@@ -803,6 +804,44 @@ function includeStrokeBounds(stroke, x0, y0, x1, y1) {
   stroke.y1 = Math.max(stroke.y1, y1);
 }
 
+function includeEditorHairPoint(state, stroke, point) {
+  const padding = 1.5 * stroke.analysisRadius;
+  includeStrokeBounds(
+    stroke,
+    Math.max(0, point.x - padding),
+    Math.max(0, point.y - padding),
+    Math.min(state.width, point.x + padding),
+    Math.min(state.height, point.y + padding),
+  );
+}
+
+function paintEditorHairSegment(state, from, to) {
+  const ctx = state.highlightContext;
+  ctx.strokeStyle = 'rgba(80,120,255,.35)';
+  ctx.fillStyle = 'rgba(80,120,255,.35)';
+  ctx.lineWidth = 6 / state.scale;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (from.x === to.x && from.y === to.y) {
+    ctx.beginPath();
+    ctx.arc(from.x, from.y, 3 / state.scale, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+}
+
+function addEditorHairPoint(state, stroke, point) {
+  const from = stroke.last;
+  stroke.points.push(point);
+  stroke.last = point;
+  includeEditorHairPoint(state, stroke, point);
+  paintEditorHairSegment(state, from, point);
+}
+
 function paintEditorStamp(state, stroke, x, y) {
   if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
   const radius = stroke.radius;
@@ -819,12 +858,8 @@ function paintEditorStamp(state, stroke, x, y) {
       const distance = Math.sqrt(dx * dx + dy * dy);
       if (distance > radius) continue;
       const index = py * state.width + px;
-      if (stroke.tool === 'rerun' || stroke.tool === 'hair') {
+      if (stroke.tool === 'rerun') {
         stroke.mask[index] = 1;
-        if (stroke.tool === 'hair') {
-          if (distance <= Math.max(1, radius * 0.28)) stroke.core[index] = 1;
-          if (distance <= radius * 0.55) stroke.mid[index] = 1;
-        }
         continue;
       }
       const k = distance <= radius * 0.7 ? 1 : (radius - distance) / (radius * 0.3);
@@ -839,7 +874,7 @@ function paintEditorStamp(state, stroke, x, y) {
   }
   includeStrokeBounds(stroke, x0, y0, x1, y1);
   if (dirty) state.resultContext.putImageData(state.composite, 0, 0, x0, y0, x1 - x0, y1 - y0);
-  if (stroke.tool === 'rerun' || stroke.tool === 'hair') {
+  if (stroke.tool === 'rerun') {
     const ctx = state.highlightContext;
     ctx.fillStyle = 'rgba(80,120,255,.35)';
     ctx.beginPath();
@@ -886,8 +921,6 @@ function rollbackEditorStroke(state) {
     state.resultContext.putImageData(state.composite, 0, 0, stroke.x0, stroke.y0, stroke.x1 - stroke.x0, stroke.y1 - stroke.y0);
   }
   if (stroke.mask) stroke.mask.fill(0);
-  if (stroke.core) stroke.core.fill(0);
-  if (stroke.mid) stroke.mid.fill(0);
   stroke.before.clear();
   state.highlightContext.clearRect(0, 0, state.width, state.height);
   state.stroke = null;
@@ -947,17 +980,24 @@ editorCanvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return;
   const image = imagePoint(state, point);
   if (image.x < 0 || image.y < 0 || image.x >= state.width || image.y >= state.height) return;
-  const radius = Number($('#brushSize').value) / 2 / state.scale;
   const tool = editorTool();
+  const canvasRect = editorCanvas.getBoundingClientRect();
+  const visW = Math.min(state.width, canvasRect.width / state.scale);
+  const visH = Math.min(state.height, canvasRect.height / state.scale);
+  const analysisRadius = tool === 'hair' ? Math.max(4, 0.08 * Math.max(visW, visH)) : null;
+  const radius = tool === 'hair' ? 3 / state.scale : Number($('#brushSize').value) / 2 / state.scale;
   state.stroke = {
-    tool, radius, last: image, before: new Map(),
-    mask: tool === 'rerun' || tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
-    core: tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
-    mid: tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
+    tool, radius, analysisRadius, last: image, points: tool === 'hair' ? [image] : null, before: new Map(),
+    mask: tool === 'rerun' ? new Uint8Array(state.width * state.height) : null,
     x0: null, y0: null, x1: null, y1: null,
   };
   state.strokePointer = event.pointerId;
-  paintEditorStamp(state, state.stroke, image.x, image.y);
+  if (tool === 'hair') {
+    includeEditorHairPoint(state, state.stroke, image);
+    paintEditorHairSegment(state, image, image);
+  } else {
+    paintEditorStamp(state, state.stroke, image.x, image.y);
+  }
   drawEditor();
   event.preventDefault();
 });
@@ -982,7 +1022,9 @@ editorCanvas.addEventListener('pointermove', (event) => {
     state.panLast = point;
     drawEditor();
   } else if (state.stroke && state.strokePointer === event.pointerId) {
-    stampEditorLine(state, state.stroke, state.stroke.last, imagePoint(state, point));
+    const image = imagePoint(state, point);
+    if (state.stroke.tool === 'hair') addEditorHairPoint(state, state.stroke, image);
+    else stampEditorLine(state, state.stroke, state.stroke.last, image);
     drawEditor();
   } else {
     drawEditor();
@@ -1021,6 +1063,7 @@ editorCanvas.addEventListener('wheel', (event) => {
 }, { passive: false });
 
 editorDialog.querySelectorAll('input[name=tool]').forEach((radio) => radio.addEventListener('change', () => {
+  updateEditorControls();
   showEditorHint(editorToolHints[editorTool()]);
   drawEditor();
 }));
@@ -1159,17 +1202,19 @@ async function runEditorRerun(state, stroke) {
 }
 
 async function runEditorHair(state, stroke) {
-  if (!stroke || stroke.x0 == null) return;
-  const radius = stroke.radius;
-  const boundsWidth = stroke.x1 - stroke.x0, boundsHeight = stroke.y1 - stroke.y0;
-  const paddingX = Math.max(radius * 2, boundsWidth * 0.2);
-  const paddingY = Math.max(radius * 2, boundsHeight * 0.2);
-  const x = Math.max(0, Math.floor(stroke.x0 - paddingX));
-  const y = Math.max(0, Math.floor(stroke.y0 - paddingY));
-  const x2 = Math.min(state.width, Math.ceil(stroke.x1 + paddingX));
-  const y2 = Math.min(state.height, Math.ceil(stroke.y1 + paddingY));
+  if (!stroke || stroke.x0 == null || !stroke.points?.length) {
+    if (stroke?.points) stroke.points.length = 0;
+    return;
+  }
+  const x = Math.max(0, Math.floor(stroke.x0));
+  const y = Math.max(0, Math.floor(stroke.y0));
+  const x2 = Math.min(state.width, Math.ceil(stroke.x1));
+  const y2 = Math.min(state.height, Math.ceil(stroke.y1));
   const width = x2 - x, height = y2 - y;
-  if (width <= 0 || height <= 0) return;
+  if (width <= 0 || height <= 0) {
+    stroke.points.length = 0;
+    return;
+  }
 
   const source = state.item.source;
   const sourceX = Math.max(0, Math.floor(x * source.width / state.width));
@@ -1181,10 +1226,10 @@ async function runEditorHair(state, stroke) {
   const cropWidth = Math.max(1, Math.round(sourceWidth * scale));
   const cropHeight = Math.max(1, Math.round(sourceHeight * scale));
 
-  let crop = null, previous = null, selection = null, core = null, midMask = null;
-  let cropAlpha = null, cropSelection = null, cropCore = null, cropMid = null, trimap = null;
-  let pixels = null, dilated = null, ring = null, den = null, weighted = null, distanceSq = null;
-  let matteAlpha = null, newAlpha = null, weights = null, diff = null;
+  let crop = null, previous = null, cropAlpha = null, pixels = null;
+  let dist = null, region = null, ring = null, den = null, weighted = null, distanceSq = null, trimap = null;
+  let matteAlpha = null, outCrop = null, weightsCrop = null, weightsEditor = null, newAlpha = null;
+  let blurred = null, cropPoints = null, diff = null;
   let keepDiff = false, changed = false;
   state.busy = true;
   updateEditorControls();
@@ -1202,70 +1247,101 @@ async function runEditorHair(state, stroke) {
 
     const area = width * height;
     previous = new Float32Array(area);
-    selection = new Float32Array(area);
-    core = new Float32Array(area);
-    midMask = new Float32Array(area);
     for (let row = 0; row < height; row++) {
       const sourceOffset = (y + row) * state.width + x;
       const destOffset = row * width;
       previous.set(state.alpha.subarray(sourceOffset, sourceOffset + width), destOffset);
-      selection.set(stroke.mask.subarray(sourceOffset, sourceOffset + width), destOffset);
-      core.set(stroke.core.subarray(sourceOffset, sourceOffset + width), destOffset);
-      midMask.set(stroke.mid.subarray(sourceOffset, sourceOffset + width), destOffset);
     }
     diff = { x, y, w: width, h: height, prev: previous };
     cropAlpha = resizeBilinear(previous, width, height, cropWidth, cropHeight);
-    cropSelection = resizeBilinear(selection, width, height, cropWidth, cropHeight);
-    cropCore = resizeBilinear(core, width, height, cropWidth, cropHeight);
-    cropMid = resizeBilinear(midMask, width, height, cropWidth, cropHeight);
     pixels = cropContext.getImageData(0, 0, cropWidth, cropHeight).data;
     const cropArea = cropWidth * cropHeight;
-    const cropRadius = Math.max(1, Math.round(radius * cropWidth / width));
-    dilated = boxBlur(cropSelection, cropWidth, cropHeight, Math.max(1, Math.round(cropRadius / 2)));
-    ring = new Float32Array(cropArea);
-    for (let i = 0; i < cropArea; i++) {
-      if (dilated[i] > 0 && cropSelection[i] <= 0.5 && cropAlpha[i] < 0.1) ring[i] = 1;
+    const k = cropWidth / width;
+    const RaC = stroke.analysisRadius * k;
+    const rc = Math.max(1, RaC / 8);
+    const searchRadius = 1.5 * RaC;
+    cropPoints = stroke.points.map((point) => ({ x: (point.x - x) * k, y: (point.y - y) * k }));
+    dist = new Float32Array(cropArea);
+    dist.fill(Infinity);
+    for (let segment = 0; segment < Math.max(1, cropPoints.length - 1); segment++) {
+      const from = cropPoints[segment];
+      const to = cropPoints[Math.min(segment + 1, cropPoints.length - 1)];
+      const vx = to.x - from.x, vy = to.y - from.y;
+      const lengthSq = vx * vx + vy * vy;
+      const x0 = Math.max(0, Math.floor(Math.min(from.x, to.x) - searchRadius));
+      const y0 = Math.max(0, Math.floor(Math.min(from.y, to.y) - searchRadius));
+      const x1 = Math.min(cropWidth, Math.ceil(Math.max(from.x, to.x) + searchRadius));
+      const y1 = Math.min(cropHeight, Math.ceil(Math.max(from.y, to.y) + searchRadius));
+      for (let py = y0; py < y1; py++) {
+        const cy = py + 0.5;
+        for (let px = x0; px < x1; px++) {
+          const cx = px + 0.5;
+          const projection = lengthSq ? Math.max(0, Math.min(1, ((cx - from.x) * vx + (cy - from.y) * vy) / lengthSq)) : 0;
+          const dx = cx - (from.x + projection * vx);
+          const dy = cy - (from.y + projection * vy);
+          const index = py * cropWidth + px;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < dist[index]) dist[index] = distance;
+        }
+      }
     }
-    dilated.fill(0);
-    den = boxBlur(ring, cropWidth, cropHeight, cropRadius);
+
+    region = new Float32Array(cropArea);
+    ring = new Float32Array(cropArea);
+    trimap = makeTrimap(cropAlpha, cropWidth, cropHeight);
+    for (let i = 0; i < cropArea; i++) {
+      if (dist[i] <= RaC) {
+        region[i] = 1;
+        if (cropAlpha[i] < 0.95) trimap[i] = 0.5;
+      }
+      if (dist[i] > RaC && dist[i] <= 1.5 * RaC && cropAlpha[i] < 0.1) ring[i] = 1;
+    }
+    const blurRadius = Math.max(1, Math.round(RaC));
+    den = boxBlur(ring, cropWidth, cropHeight, blurRadius);
     weighted = new Float32Array(cropArea);
     distanceSq = new Float32Array(cropArea);
     for (let channel = 0; channel < 3; channel++) {
       for (let i = 0; i < cropArea; i++) weighted[i] = pixels[i * 4 + channel] / 255 * ring[i];
-      const blurred = boxBlur(weighted, cropWidth, cropHeight, cropRadius);
+      blurred = boxBlur(weighted, cropWidth, cropHeight, blurRadius);
       for (let i = 0; i < cropArea; i++) {
         const difference = pixels[i * 4 + channel] / 255 - blurred[i] / (den[i] + 1e-6);
         distanceSq[i] += difference * difference;
       }
       blurred.fill(0);
+      blurred = null;
     }
-    trimap = makeTrimap(cropAlpha, cropWidth, cropHeight);
     for (let i = 0; i < trimap.length; i++) {
-      const inStroke = cropSelection[i] > 0.5;
-      if (inStroke) trimap[i] = 0.5;
-      if (inStroke && cropMid[i] <= 0.5 && den[i] > 0.01 && Math.sqrt(distanceSq[i]) < 0.05) trimap[i] = 0;
-      if (cropCore[i] > 0.5) trimap[i] = 1;
+      if (region[i] && dist[i] > 0.5 * RaC && Math.sqrt(distanceSq[i]) < 0.05 &&
+          cropAlpha[i] < 0.5 && den[i] > 0.01) trimap[i] = 0;
+      if (dist[i] <= rc) trimap[i] = 1;
     }
-    stroke.mask.fill(0);
-    stroke.core.fill(0);
-    stroke.mid.fill(0);
 
     matteAlpha = await runMatte(crop, trimap);
     for (let i = 0; i < matteAlpha.length; i++) {
-      if (cropSelection[i] > 0.5) matteAlpha[i] = Math.max(0, Math.min(1, (matteAlpha[i] - 0.2) / 0.65));
+      if (region[i]) matteAlpha[i] = Math.max(0, Math.min(1, (matteAlpha[i] - 0.1) / 0.8));
+      else matteAlpha[i] = cropAlpha[i];
     }
-    newAlpha = resizeBilinear(matteAlpha, cropWidth, cropHeight, width, height);
-    weights = boxBlur(selection, width, height, Math.max(2, Math.round(radius / 3)));
+    weightsCrop = boxBlur(region, cropWidth, cropHeight, Math.max(2, Math.round(RaC / 8)));
+    outCrop = new Float32Array(cropArea);
+    for (let i = 0; i < cropArea; i++) {
+      const weight = Math.max(0, Math.min(1, weightsCrop[i]));
+      weightsCrop[i] = weight;
+      outCrop[i] = weight * matteAlpha[i] + (1 - weight) * cropAlpha[i];
+    }
+    newAlpha = resizeBilinear(outCrop, cropWidth, cropHeight, width, height);
+    weightsEditor = resizeBilinear(weightsCrop, cropWidth, cropHeight, width, height);
     for (let i = 0; i < area; i++) {
-      const weight = Math.max(0, Math.min(1, weights[i]));
+      const weight = Math.max(0, Math.min(1, weightsEditor[i]));
+      if (weight <= 1e-6) continue;
       const next = weight * newAlpha[i] + (1 - weight) * previous[i];
-      if (Math.abs(next - previous[i]) > 1e-7) changed = true;
+      if (Math.abs(next - previous[i]) <= 1e-7) continue;
+      changed = true;
       const dest = (y + Math.floor(i / width)) * state.width + x + (i % width);
       state.alpha[dest] = next;
       state.composite.data[dest * 4 + 3] = Math.round(next * 255);
     }
-    state.resultContext.putImageData(state.composite, 0, 0, x, y, width, height);
     if (changed) {
+      state.resultContext.putImageData(state.composite, 0, 0, x, y, width, height);
       pushEditorUndo(state, diff);
       keepDiff = true;
     } else {
@@ -1282,33 +1358,29 @@ async function runEditorHair(state, stroke) {
         const dest = (y + row) * state.width + x;
         const src = row * width;
         state.alpha.set(previous.subarray(src, src + width), dest);
-        for (let col = 0; col < width; col++) state.composite.data[(dest + col) * 4 + 3] = Math.round(previous[src + col] * 255);
       }
-      state.resultContext.putImageData(state.composite, 0, 0, x, y, width, height);
+      updateEditorComposite(state, x, y, width, height);
     }
     showEditorHint(`머리카락 처리 실패: ${err.message}`, true);
   } finally {
     if (crop) crop.width = crop.height = 0;
-    if (stroke.mask) stroke.mask.fill(0);
-    if (stroke.core) stroke.core.fill(0);
-    if (stroke.mid) stroke.mid.fill(0);
-    if (selection) selection.fill(0);
-    if (core) core.fill(0);
-    if (midMask) midMask.fill(0);
     if (cropAlpha) cropAlpha.fill(0);
-    if (cropSelection) cropSelection.fill(0);
-    if (cropCore) cropCore.fill(0);
-    if (cropMid) cropMid.fill(0);
-    if (trimap) trimap.fill(0);
-    if (dilated) dilated.fill(0);
+    if (dist) dist.fill(0);
+    if (region) region.fill(0);
     if (ring) ring.fill(0);
     if (den) den.fill(0);
     if (weighted) weighted.fill(0);
     if (distanceSq) distanceSq.fill(0);
+    if (trimap) trimap.fill(0);
     if (pixels) pixels.fill(0);
+    if (blurred) blurred.fill(0);
     if (matteAlpha) matteAlpha.fill(0);
+    if (outCrop) outCrop.fill(0);
+    if (weightsCrop) weightsCrop.fill(0);
+    if (weightsEditor) weightsEditor.fill(0);
     if (newAlpha) newAlpha.fill(0);
-    if (weights) weights.fill(0);
+    if (cropPoints) cropPoints.length = 0;
+    if (stroke.points) stroke.points.length = 0;
     if (!keepDiff && previous) previous.fill(0);
     if (editorState === state) {
       state.busy = false;
