@@ -23,6 +23,11 @@ main { width: 100%; max-width: 960px; margin: 0 auto; padding: 0 16px 24px; flex
 .seg input[type=radio]:checked + span { background: var(--accent); color: var(--accent-fg); }
 .seg input[type=radio]:checked + span small { color: #c9ccd6; }
 .seg input[type=radio]:focus-visible + span { outline: 2px solid var(--hl); }
+.precise { flex-wrap: wrap; }
+.precise-option { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.precise-option input { accent-color: var(--fg); }
+.precise-option small { color: var(--muted); font-size: 11px; }
+.precise .hint { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .refine { flex-wrap: wrap; font-size: 13px; }
 .refine input[type=range] { width: 140px; accent-color: var(--fg); }
 .refine .seg span { padding: 6px 9px; font-size: 13px; }

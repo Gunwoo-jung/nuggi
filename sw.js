@@ -1,5 +1,5 @@
 /* Caches only the app's own static files (code + models) for offline use. User images are never fetched, so they never reach this cache. */
-const CACHE = 'nukki-v5';
+const CACHE = 'nukki-v6';
 const IMMUTABLE = /\/(models|vendor)\//;
 const SHELL = [
   './', 'index.html', 'style.css', 'app.js', 'worker.js', 'manifest.webmanifest',

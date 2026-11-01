@@ -34,6 +34,7 @@ Python 3만 있으면 되고 빌드나 설치 과정은 없습니다.
 - **모드**
   - 일반(전신·사물, 권장): ormbg, 44MB, 1024×1024 입력
   - 얼굴·상반신(빠름): MODNet, 7MB. 상반신 인물 사진용으로 학습돼 전신 사진에서는 다리가 지워질 수 있습니다.
+- **정밀 보정**(기본 켜짐): ViTMatte가 머리카락·털 경계를 한 번 더 다듬고 가장자리에 비친 배경색을 제거합니다. 처음 사용할 때 모델 27MB를 추가로 받고, 처리 시간이 늘어납니다. 끄면 기존 모델 결과만 사용합니다.
 - **배경**: 투명, 흰색, 검정, 원하는 색. 저장할 때 적용됩니다.
 - **잔여물 제거**(기본 0%): 가장자리에 남은 흐릿한 배경 흔적(그림자, 배경색 번짐)을 지웁니다. 0/25/50/75/100% 버튼이나 슬라이더·숫자 입력으로 조절합니다. 높일수록 가는 머리카락도 함께 지워질 수 있습니다. 모델을 다시 돌리지 않고 바로 반영됩니다.
 - 비교 슬라이더(원본↔결과), 여러 장 동시 처리, 드래그 앤 드롭, 붙여넣기
@@ -46,13 +47,14 @@ Python 3만 있으면 되고 빌드나 설치 과정은 없습니다.
 | `index.html`, `style.css`, `app.js` | UI, 전처리, 마스크 합성, 저장 |
 | `worker.js` | Web Worker에서 onnxruntime-web으로 추론 |
 | `sw.js` | 앱 파일과 모델의 오프라인 캐시 |
-| `models/` | `ormbg.onnx`(quantized), `modnet.onnx`(uint8) |
+| `models/` | `ormbg.onnx`(quantized), `modnet.onnx`(uint8), `vitmatte.onnx`(quantized) |
 | `vendor/` | onnxruntime-web 1.31.1 (wasm) |
 
 ## 라이선스 (서드파티)
 
 - ormbg — Apache-2.0 — https://huggingface.co/onnx-community/ormbg-ONNX (원본: schirrmacher/ormbg)
 - MODNet — Apache-2.0 — https://huggingface.co/Xenova/modnet (원본: ZHKKKe/MODNet)
+- ViTMatte — Apache-2.0 — https://huggingface.co/hustvl/vitmatte-small-composition-1k (ONNX via Xenova)
 - onnxruntime-web — MIT — https://github.com/microsoft/onnxruntime
 
 모두 상업적으로 사용할 수 있는 라이선스입니다. RMBG-1.4(비상업)와 ISNet ONNX 배포본(AGPL)은 라이선스 때문에 쓰지 않았습니다.

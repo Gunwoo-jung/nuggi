@@ -10,6 +10,7 @@ ort.env.wasm.numThreads = self.crossOriginIsolated
 const MODELS = {
   general: { url: 'models/ormbg.onnx', input: 'pixel_values' },
   portrait: { url: 'models/modnet.onnx', input: 'input' },
+  matte: { url: 'models/vitmatte.onnx', input: 'pixel_values' },
 };
 
 const sessions = {};
@@ -60,7 +61,7 @@ self.onmessage = async ({ data: msg }) => {
     }
     if (type === 'run') {
       const session = await getSession(model);
-      const input = new ort.Tensor('float32', msg.data, [1, 3, msg.height, msg.width]);
+      const input = new ort.Tensor('float32', msg.data, [1, msg.channels || 3, msg.height, msg.width]);
       const results = await session.run({ [MODELS[model].input]: input });
       const output = results[session.outputNames[0]];
       const [, , h, w] = output.dims;
