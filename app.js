@@ -230,6 +230,9 @@ async function refineAlpha(src, baseAlpha, baseWidth, baseHeight) {
   const result = runMatte(work, trimap);
   work.width = work.height = 0;
   const output = await result;
+  for (let i = 0; i < alpha.length; i++) {
+    if (alpha[i] >= 0.6) output[i] = Math.max(output[i], alpha[i]);
+  }
   alpha.fill(0);
   trimap.fill(0);
   return { alpha: output, width: w, height: h };
@@ -595,7 +598,7 @@ const editorHint = $('#editorHint');
 const editorBusy = $('#editorBusy');
 const editorUndo = $('#editorUndo');
 const editorToolHints = {
-  hair: '머리카락이 있는 곳을 따라 선을 그으세요. 브러시 크기와 상관없이 선 주변을 AI가 살펴서 머리카락만 살리고 배경은 뺍니다. 확대하면 더 좁은 범위를 자세히 봅니다.',
+  hair: '머리카락이 있는 곳마다 선을 그은 뒤 "선택한 곳 보기"를 누르세요. 선 주변을 AI가 자세히 살펴 머리카락만 살리고 배경은 뺍니다. 확대하면 더 좁은 범위를 봅니다.',
   rerun: '머리카락이나 어두운 부분이 날아간 곳을 문지르세요. 그 부분만 크게 잘라 AI가 다시 봅니다.',
   erase: '남은 배경을 문질러 지웁니다.',
   restore: '잘못 지워진 부분을 문질러 원본에서 되살립니다.',
@@ -616,10 +619,15 @@ function updateEditorControls() {
   if (!editorState) return;
   const disabled = editorState.busy || editorState.applying;
   const hairTool = editorTool() === 'hair';
+  const pendingCount = editorState.hairPending.length;
   for (const control of editorDialog.querySelectorAll('input,button')) control.disabled = disabled;
   $('#brushSize').disabled = disabled || hairTool;
   editorDialog.querySelector('.brush-control').classList.toggle('disabled', hairTool);
-  editorUndo.disabled = disabled || editorState.undo.length === 0;
+  $('#hairActions').hidden = !hairTool;
+  $('#hairCount').textContent = `선 ${pendingCount}개`;
+  $('#hairRun').disabled = disabled || pendingCount === 0;
+  $('#hairClear').disabled = disabled || pendingCount === 0;
+  editorUndo.disabled = disabled || (!editorState.undo.length && pendingCount === 0);
   $('#editorApply').disabled = disabled;
   $('#editorCancel').disabled = disabled;
   editorBusy.hidden = !editorState.busy;
@@ -673,7 +681,7 @@ function openEditor(item) {
   const highlightContext = highlightCanvas.getContext('2d');
   editorState = {
     item, width, height, alpha, source, sourceCanvas, resultCanvas, resultContext, composite,
-    highlightCanvas, highlightContext, undo: [], pointers: new Map(), stroke: null, pinch: null,
+    highlightCanvas, highlightContext, undo: [], hairPending: [], pointers: new Map(), stroke: null, pinch: null,
     panPointer: null, cursor: null, scale: 0, fitScale: 0, offsetX: 0, offsetY: 0,
     busy: false, dpr: 0,
   };
@@ -693,7 +701,10 @@ function disposeEditor(state) {
   if (state.composite) state.composite.data.fill(0);
   if (state.source) state.source.data.fill(0);
   if (state.stroke?.mask) state.stroke.mask.fill(0);
+  if (state.stroke?.points) state.stroke.points.length = 0;
   if (state.stroke?.before) state.stroke.before.clear();
+  for (const stroke of state.hairPending) stroke.points.length = 0;
+  state.hairPending.length = 0;
   for (const diff of state.undo) diff.prev.fill(0);
   state.undo.length = 0;
   for (const canvas of [state.sourceCanvas, state.resultCanvas, state.highlightCanvas, editorCanvas]) {
@@ -713,6 +724,8 @@ function closeEditor() {
 async function applyEditor() {
   const state = editorState;
   if (!state || state.busy || state.applying) return;
+  if (state.hairPending.length && !(await runEditorHairBatch(state))) return;
+  if (editorState !== state) return;
   const previousMask = state.item.mask;
   state.item.mask = { alpha: state.alpha, width: state.width, height: state.height };
   state.applying = true;
@@ -767,7 +780,9 @@ function drawEditor() {
     ctx.globalAlpha = 1;
   }
   ctx.drawImage(state.resultCanvas, 0, 0);
-  if (state.stroke?.tool === 'rerun' || state.stroke?.tool === 'hair') ctx.drawImage(state.highlightCanvas, 0, 0);
+  if (state.hairPending.length || state.stroke?.tool === 'rerun' || state.stroke?.tool === 'hair') {
+    ctx.drawImage(state.highlightCanvas, 0, 0);
+  }
   if (state.cursor && !state.busy) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const radius = editorTool() === 'hair' ? 3 : Number($('#brushSize').value) / 2;
@@ -832,6 +847,19 @@ function paintEditorHairSegment(state, from, to) {
   ctx.moveTo(from.x, from.y);
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
+}
+
+function paintEditorHairStroke(state, stroke) {
+  if (!stroke.points.length) return;
+  paintEditorHairSegment(state, stroke.points[0], stroke.points[0]);
+  for (let i = 1; i < stroke.points.length; i++) {
+    paintEditorHairSegment(state, stroke.points[i - 1], stroke.points[i]);
+  }
+}
+
+function redrawEditorHairPending(state) {
+  state.highlightContext.clearRect(0, 0, state.width, state.height);
+  for (const stroke of state.hairPending) paintEditorHairStroke(state, stroke);
 }
 
 function addEditorHairPoint(state, stroke, point) {
@@ -922,12 +950,19 @@ function rollbackEditorStroke(state) {
   }
   if (stroke.mask) stroke.mask.fill(0);
   stroke.before.clear();
-  state.highlightContext.clearRect(0, 0, state.width, state.height);
   state.stroke = null;
+  redrawEditorHairPending(state);
   drawEditor();
 }
 
 function finishEditorStroke(state, stroke) {
+  if (stroke.tool === 'hair') {
+    state.stroke = null;
+    state.hairPending.push(stroke);
+    updateEditorControls();
+    drawEditor();
+    return;
+  }
   if (stroke.tool !== 'rerun' && stroke.tool !== 'hair') {
     const diff = editorDiffFromStroke(state, stroke);
     if (diff) pushEditorUndo(state, diff);
@@ -936,8 +971,7 @@ function finishEditorStroke(state, stroke) {
     return;
   }
   state.stroke = null;
-  if (stroke.tool === 'hair') void runEditorHair(state, stroke);
-  else void runEditorRerun(state, stroke);
+  void runEditorRerun(state, stroke);
 }
 
 function clampEditorZoom(state, scale) {
@@ -984,7 +1018,7 @@ editorCanvas.addEventListener('pointerdown', (event) => {
   const canvasRect = editorCanvas.getBoundingClientRect();
   const visW = Math.min(state.width, canvasRect.width / state.scale);
   const visH = Math.min(state.height, canvasRect.height / state.scale);
-  const analysisRadius = tool === 'hair' ? Math.max(4, 0.08 * Math.max(visW, visH)) : null;
+  const analysisRadius = tool === 'hair' ? Math.max(4, 0.05 * Math.max(visW, visH)) : null;
   const radius = tool === 'hair' ? 3 / state.scale : Number($('#brushSize').value) / 2 / state.scale;
   state.stroke = {
     tool, radius, analysisRadius, last: image, points: tool === 'hair' ? [image] : null, before: new Map(),
@@ -1075,6 +1109,14 @@ $('#editorOverlay').addEventListener('change', drawEditor);
 editorUndo.addEventListener('click', () => {
   if (!editorState || editorState.busy) return;
   const state = editorState;
+  if (state.hairPending.length) {
+    const stroke = state.hairPending.pop();
+    stroke.points.length = 0;
+    redrawEditorHairPending(state);
+    updateEditorControls();
+    drawEditor();
+    return;
+  }
   const diff = state.undo.pop();
   if (!diff) return;
   for (let row = 0; row < diff.h; row++) {
@@ -1085,6 +1127,18 @@ editorUndo.addEventListener('click', () => {
   }
   state.resultContext.putImageData(state.composite, 0, 0, diff.x, diff.y, diff.w, diff.h);
   diff.prev.fill(0);
+  updateEditorControls();
+  drawEditor();
+});
+$('#hairRun').addEventListener('click', () => {
+  if (editorState) void runEditorHairBatch(editorState);
+});
+$('#hairClear').addEventListener('click', () => {
+  if (!editorState || editorState.busy || editorState.applying) return;
+  const state = editorState;
+  for (const stroke of state.hairPending) stroke.points.length = 0;
+  state.hairPending.length = 0;
+  redrawEditorHairPending(state);
   updateEditorControls();
   drawEditor();
 });
@@ -1191,7 +1245,7 @@ async function runEditorRerun(state, stroke) {
     selection.fill(0);
     if (editorState === state) {
       state.busy = false;
-      state.highlightContext.clearRect(0, 0, state.width, state.height);
+      redrawEditorHairPending(state);
       updateEditorControls();
       drawEditor();
     }
@@ -1201,7 +1255,83 @@ async function runEditorRerun(state, stroke) {
   }
 }
 
-async function runEditorHair(state, stroke) {
+async function runEditorHairBatch(state) {
+  if (!state || state.busy || state.applying || !state.hairPending.length) return false;
+  const strokes = [...state.hairPending];
+  let minX = state.width, minY = state.height, maxX = 0, maxY = 0;
+  for (const stroke of strokes) {
+    minX = Math.min(minX, stroke.x0);
+    minY = Math.min(minY, stroke.y0);
+    maxX = Math.max(maxX, stroke.x1);
+    maxY = Math.max(maxY, stroke.y1);
+  }
+  const x = Math.max(0, Math.floor(minX));
+  const y = Math.max(0, Math.floor(minY));
+  const x2 = Math.min(state.width, Math.ceil(maxX));
+  const y2 = Math.min(state.height, Math.ceil(maxY));
+  const width = x2 - x, height = y2 - y;
+  if (width <= 0 || height <= 0) return false;
+
+  const previous = new Float32Array(width * height);
+  for (let row = 0; row < height; row++) {
+    const sourceOffset = (y + row) * state.width + x;
+    previous.set(state.alpha.subarray(sourceOffset, sourceOffset + width), row * width);
+  }
+  const diff = { x, y, w: width, h: height, prev: previous };
+  const started = performance.now();
+  let keepDiff = false;
+
+  state.busy = true;
+  updateEditorControls();
+  showEditorHint('머리카락을 다시 보는 중…');
+  try {
+    for (let i = 0; i < strokes.length; i++) {
+      editorBusy.textContent = `머리카락을 다시 보는 중… (${i + 1}/${strokes.length})`;
+      await runEditorHair(state, strokes[i], { recordUndo: false });
+    }
+    let changed = false;
+    for (let row = 0; row < height && !changed; row++) {
+      const start = row * width;
+      const alphaStart = (y + row) * state.width + x;
+      for (let col = 0; col < width; col++) {
+        if (Math.abs(state.alpha[alphaStart + col] - previous[start + col]) > 1e-7) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) {
+      pushEditorUndo(state, diff);
+      keepDiff = true;
+    }
+    showEditorHint(`머리카락 처리를 마쳤습니다 · ${strokes.length}개 · ${((performance.now() - started) / 1000).toFixed(1)}초`);
+    hideStatus();
+    return true;
+  } catch (err) {
+    console.error(err);
+    hideStatus();
+    for (let row = 0; row < height; row++) {
+      const dest = (y + row) * state.width + x;
+      const src = row * width;
+      state.alpha.set(previous.subarray(src, src + width), dest);
+    }
+    updateEditorComposite(state, x, y, width, height);
+    showEditorHint(`머리카락 처리 실패: ${err.message}`, true);
+    return false;
+  } finally {
+    for (const stroke of strokes) stroke.points.length = 0;
+    state.hairPending.length = 0;
+    if (!keepDiff) previous.fill(0);
+    if (editorState === state) {
+      state.busy = false;
+      redrawEditorHairPending(state);
+      updateEditorControls();
+      drawEditor();
+    }
+  }
+}
+
+async function runEditorHair(state, stroke, { recordUndo = true } = {}) {
   if (!stroke || stroke.x0 == null || !stroke.points?.length) {
     if (stroke?.points) stroke.points.length = 0;
     return;
@@ -1231,10 +1361,12 @@ async function runEditorHair(state, stroke) {
   let matteAlpha = null, outCrop = null, weightsCrop = null, weightsEditor = null, newAlpha = null;
   let blurred = null, cropPoints = null, diff = null;
   let keepDiff = false, changed = false;
-  state.busy = true;
-  updateEditorControls();
-  editorBusy.textContent = '머리카락을 다시 보는 중…';
-  showEditorHint('머리카락을 다시 보는 중…');
+  if (recordUndo) {
+    state.busy = true;
+    updateEditorControls();
+    editorBusy.textContent = '머리카락을 다시 보는 중…';
+    showEditorHint('머리카락을 다시 보는 중…');
+  }
   if (!loadedModels.has('matte')) {
     showStatus(`${MODEL_LABEL.matte} 불러오는 중 (${MODEL_SIZE.matte}, 처음 한 번만)`);
   }
@@ -1333,7 +1465,7 @@ async function runEditorHair(state, stroke) {
     for (let i = 0; i < area; i++) {
       const weight = Math.max(0, Math.min(1, weightsEditor[i]));
       if (weight <= 1e-6) continue;
-      const next = weight * newAlpha[i] + (1 - weight) * previous[i];
+      const next = Math.max(previous[i], weight * newAlpha[i] + (1 - weight) * previous[i]);
       if (Math.abs(next - previous[i]) <= 1e-7) continue;
       changed = true;
       const dest = (y + Math.floor(i / width)) * state.width + x + (i % width);
@@ -1342,14 +1474,21 @@ async function runEditorHair(state, stroke) {
     }
     if (changed) {
       state.resultContext.putImageData(state.composite, 0, 0, x, y, width, height);
-      pushEditorUndo(state, diff);
-      keepDiff = true;
+      if (recordUndo) {
+        pushEditorUndo(state, diff);
+        keepDiff = true;
+      } else {
+        diff.prev.fill(0);
+      }
     } else {
       diff.prev.fill(0);
     }
-    showEditorHint(`머리카락 처리를 마쳤습니다 · ${((performance.now() - started) / 1000).toFixed(1)}초`);
+    if (recordUndo) {
+      showEditorHint(`머리카락 처리를 마쳤습니다 · ${((performance.now() - started) / 1000).toFixed(1)}초`);
+    }
     hideStatus();
     drawEditor();
+    return changed;
   } catch (err) {
     console.error(err);
     hideStatus();
@@ -1362,6 +1501,7 @@ async function runEditorHair(state, stroke) {
       updateEditorComposite(state, x, y, width, height);
     }
     showEditorHint(`머리카락 처리 실패: ${err.message}`, true);
+    if (!recordUndo) throw err;
   } finally {
     if (crop) crop.width = crop.height = 0;
     if (cropAlpha) cropAlpha.fill(0);
@@ -1380,11 +1520,11 @@ async function runEditorHair(state, stroke) {
     if (weightsEditor) weightsEditor.fill(0);
     if (newAlpha) newAlpha.fill(0);
     if (cropPoints) cropPoints.length = 0;
-    if (stroke.points) stroke.points.length = 0;
+    if (recordUndo && stroke.points) stroke.points.length = 0;
     if (!keepDiff && previous) previous.fill(0);
-    if (editorState === state) {
+    if (recordUndo && editorState === state) {
       state.busy = false;
-      state.highlightContext.clearRect(0, 0, state.width, state.height);
+      redrawEditorHairPending(state);
       updateEditorControls();
       drawEditor();
     }

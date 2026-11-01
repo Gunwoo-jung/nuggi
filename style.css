@@ -95,6 +95,9 @@ button:disabled { opacity: .4; cursor: default; }
 .brush-control output { min-width: 42px; color: var(--muted); }
 .overlay-control { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .overlay-control input { accent-color: var(--fg); }
+.hair-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.hair-actions[hidden] { display: none; }
+.hair-actions button { padding: 6px 9px; white-space: nowrap; }
 .editor-workspace { position: relative; min-height: 0; overflow: hidden; background-color: #fff;
   background-image: linear-gradient(45deg, #e6e8ec 25%, transparent 25%), linear-gradient(-45deg, #e6e8ec 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #e6e8ec 75%), linear-gradient(-45deg, transparent 75%, #e6e8ec 75%);
@@ -119,6 +122,8 @@ button:disabled { opacity: .4; cursor: default; }
   .editor-options { gap: 8px; font-size: 12px; }
   .brush-control { gap: 5px; }
   .brush-control input { width: min(150px, 35vw); }
+  .hair-actions { gap: 5px; }
+  .hair-actions button { padding: 7px 8px; font-size: 12px; }
   .editor-footer { padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
   .editor-footer button { padding: 8px 10px; }
   .editor-actions { gap: 6px; }

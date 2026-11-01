@@ -115,10 +115,15 @@
             <label><input type="radio" name="tool" value="pan"><span>이동</span></label>
           </div>
         </div>
-        <p id="editorHint" class="editor-hint">머리카락이 있는 곳을 따라 선을 그으세요. 브러시 크기와 상관없이 선 주변을 AI가 살펴서 머리카락만 살리고 배경은 뺍니다. 확대하면 더 좁은 범위를 자세히 봅니다.</p>
+        <p id="editorHint" class="editor-hint">머리카락이 있는 곳마다 선을 그은 뒤 "선택한 곳 보기"를 누르세요. 선 주변을 AI가 자세히 살펴 머리카락만 살리고 배경은 뺍니다. 확대하면 더 좁은 범위를 봅니다.</p>
         <div class="editor-options">
           <label class="brush-control"><span>브러시 크기</span><input id="brushSize" type="range" min="4" max="200" value="40"><output id="brushValue" for="brushSize">40px</output></label>
           <label class="overlay-control"><input id="editorOverlay" type="checkbox">원본 겹쳐 보기</label>
+        </div>
+        <div id="hairActions" class="hair-actions" hidden>
+          <span id="hairCount">선 0개</span>
+          <button type="button" id="hairRun" disabled>선택한 곳 보기</button>
+          <button type="button" id="hairClear" disabled>선 모두 지우기</button>
         </div>
       </header>
       <div id="editorWorkspace" class="editor-workspace">
