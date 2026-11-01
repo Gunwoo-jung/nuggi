@@ -108,13 +108,14 @@
         <div class="editor-tools">
           <span class="label">도구</span>
           <div class="seg editor-tool" role="radiogroup" aria-label="직접 수정 도구">
-            <label><input type="radio" name="tool" value="rerun" checked><span>다시 보기</span></label>
+            <label><input type="radio" name="tool" value="hair" checked><span>머리카락</span></label>
+            <label><input type="radio" name="tool" value="rerun"><span>다시 보기</span></label>
             <label><input type="radio" name="tool" value="erase"><span>지우기</span></label>
             <label><input type="radio" name="tool" value="restore"><span>살리기</span></label>
             <label><input type="radio" name="tool" value="pan"><span>이동</span></label>
           </div>
         </div>
-        <p id="editorHint" class="editor-hint">머리카락이나 어두운 부분이 날아간 곳을 문지르세요. 그 부분만 크게 잘라 AI가 다시 봅니다.</p>
+        <p id="editorHint" class="editor-hint">머리카락 가운데를 따라 넉넉하게 그리세요. 그은 선의 가운데는 머리카락으로 두고, 주변은 AI가 머리카락과 배경을 나눕니다.</p>
         <div class="editor-options">
           <label class="brush-control"><span>브러시 크기</span><input id="brushSize" type="range" min="4" max="200" value="40"><output id="brushValue" for="brushSize">40px</output></label>
           <label class="overlay-control"><input id="editorOverlay" type="checkbox">원본 겹쳐 보기</label>

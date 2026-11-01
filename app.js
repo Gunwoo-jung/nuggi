@@ -186,15 +186,9 @@ function makeTrimap(alpha, w, h) {
   return trimap;
 }
 
-async function refineAlpha(src, baseAlpha, baseWidth, baseHeight) {
-  const [w, h] = workSize(src.width, src.height);
-  const work = makeCanvas(w, h);
-  const workCtx = work.getContext('2d', { willReadFrequently: true });
-  workCtx.imageSmoothingQuality = 'high';
-  workCtx.drawImage(src, 0, 0, w, h);
-  const pixels = workCtx.getImageData(0, 0, w, h).data;
-  const alpha = resizeBilinear(baseAlpha, baseWidth, baseHeight, w, h);
-  const trimap = makeTrimap(alpha, w, h);
+async function runMatte(canvas, trimap) {
+  const w = canvas.width, h = canvas.height;
+  const pixels = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
   const paddedWidth = Math.ceil(w / 32) * 32;
   const paddedHeight = Math.ceil(h / 32) * 32;
   const plane = paddedWidth * paddedHeight;
@@ -211,10 +205,10 @@ async function refineAlpha(src, baseAlpha, baseWidth, baseHeight) {
       input[3 * plane + dstI] = trimap[sy * w + sx];
     }
   }
-  work.width = work.height = 0;
   const result = await callWorker({
     type: 'run', model: 'matte', data: input, channels: 4, width: paddedWidth, height: paddedHeight,
   }, [input.buffer]);
+  loadedModels.add('matte');
   const output = new Float32Array(w * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -222,6 +216,20 @@ async function refineAlpha(src, baseAlpha, baseWidth, baseHeight) {
       output[i] = trimap[i] === 1 ? 1 : trimap[i] === 0 ? 0 : Math.max(0, Math.min(1, result.alpha[y * paddedWidth + x]));
     }
   }
+  return output;
+}
+
+async function refineAlpha(src, baseAlpha, baseWidth, baseHeight) {
+  const [w, h] = workSize(src.width, src.height);
+  const work = makeCanvas(w, h);
+  const workCtx = work.getContext('2d', { willReadFrequently: true });
+  workCtx.imageSmoothingQuality = 'high';
+  workCtx.drawImage(src, 0, 0, w, h);
+  const alpha = resizeBilinear(baseAlpha, baseWidth, baseHeight, w, h);
+  const trimap = makeTrimap(alpha, w, h);
+  const result = runMatte(work, trimap);
+  work.width = work.height = 0;
+  const output = await result;
   alpha.fill(0);
   trimap.fill(0);
   return { alpha: output, width: w, height: h };
@@ -587,6 +595,7 @@ const editorHint = $('#editorHint');
 const editorBusy = $('#editorBusy');
 const editorUndo = $('#editorUndo');
 const editorToolHints = {
+  hair: '머리카락 가운데를 따라 넉넉하게 그리세요. 그은 선의 가운데는 머리카락으로 두고, 주변은 AI가 머리카락과 배경을 나눕니다.',
   rerun: '머리카락이나 어두운 부분이 날아간 곳을 문지르세요. 그 부분만 크게 잘라 AI가 다시 봅니다.',
   erase: '남은 배경을 문질러 지웁니다.',
   restore: '잘못 지워진 부분을 문질러 원본에서 되살립니다.',
@@ -665,11 +674,11 @@ function openEditor(item) {
     panPointer: null, cursor: null, scale: 0, fitScale: 0, offsetX: 0, offsetY: 0,
     busy: false, dpr: 0,
   };
-  editorDialog.querySelector('input[name=tool][value=rerun]').checked = true;
+  editorDialog.querySelector('input[name=tool][value=hair]').checked = true;
   $('#brushSize').value = 40;
   $('#brushValue').value = '40px';
   $('#editorOverlay').checked = false;
-  showEditorHint(editorToolHints.rerun);
+  showEditorHint(editorToolHints.hair);
   updateEditorControls();
   updateEditorBackground();
   editorDialog.showModal();
@@ -681,6 +690,7 @@ function disposeEditor(state) {
   if (state.composite) state.composite.data.fill(0);
   if (state.source) state.source.data.fill(0);
   if (state.stroke?.mask) state.stroke.mask.fill(0);
+  if (state.stroke?.core) state.stroke.core.fill(0);
   if (state.stroke?.before) state.stroke.before.clear();
   for (const diff of state.undo) diff.prev.fill(0);
   state.undo.length = 0;
@@ -755,14 +765,14 @@ function drawEditor() {
     ctx.globalAlpha = 1;
   }
   ctx.drawImage(state.resultCanvas, 0, 0);
-  if (state.stroke?.tool === 'rerun') ctx.drawImage(state.highlightCanvas, 0, 0);
+  if (state.stroke?.tool === 'rerun' || state.stroke?.tool === 'hair') ctx.drawImage(state.highlightCanvas, 0, 0);
   if (state.cursor && !state.busy) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const size = Number($('#brushSize').value);
     ctx.beginPath();
     ctx.arc(state.cursor.x, state.cursor.y, size / 2, 0, Math.PI * 2);
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = editorTool() === 'rerun' ? '#537aff' : '#fff';
+    ctx.strokeStyle = editorTool() === 'rerun' || editorTool() === 'hair' ? '#537aff' : '#fff';
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(state.cursor.x, state.cursor.y, size / 2 + 1, 0, Math.PI * 2);
@@ -808,8 +818,9 @@ function paintEditorStamp(state, stroke, x, y) {
       const distance = Math.sqrt(dx * dx + dy * dy);
       if (distance > radius) continue;
       const index = py * state.width + px;
-      if (stroke.tool === 'rerun') {
+      if (stroke.tool === 'rerun' || stroke.tool === 'hair') {
         stroke.mask[index] = 1;
+        if (stroke.tool === 'hair' && distance <= Math.max(1, radius * 0.28)) stroke.core[index] = 1;
         continue;
       }
       const k = distance <= radius * 0.7 ? 1 : (radius - distance) / (radius * 0.3);
@@ -824,7 +835,7 @@ function paintEditorStamp(state, stroke, x, y) {
   }
   includeStrokeBounds(stroke, x0, y0, x1, y1);
   if (dirty) state.resultContext.putImageData(state.composite, 0, 0, x0, y0, x1 - x0, y1 - y0);
-  if (stroke.tool === 'rerun') {
+  if (stroke.tool === 'rerun' || stroke.tool === 'hair') {
     const ctx = state.highlightContext;
     ctx.fillStyle = 'rgba(80,120,255,.35)';
     ctx.beginPath();
@@ -871,6 +882,7 @@ function rollbackEditorStroke(state) {
     state.resultContext.putImageData(state.composite, 0, 0, stroke.x0, stroke.y0, stroke.x1 - stroke.x0, stroke.y1 - stroke.y0);
   }
   if (stroke.mask) stroke.mask.fill(0);
+  if (stroke.core) stroke.core.fill(0);
   stroke.before.clear();
   state.highlightContext.clearRect(0, 0, state.width, state.height);
   state.stroke = null;
@@ -878,7 +890,7 @@ function rollbackEditorStroke(state) {
 }
 
 function finishEditorStroke(state, stroke) {
-  if (stroke.tool !== 'rerun') {
+  if (stroke.tool !== 'rerun' && stroke.tool !== 'hair') {
     const diff = editorDiffFromStroke(state, stroke);
     if (diff) pushEditorUndo(state, diff);
     state.stroke = null;
@@ -886,7 +898,8 @@ function finishEditorStroke(state, stroke) {
     return;
   }
   state.stroke = null;
-  void runEditorRerun(state, stroke);
+  if (stroke.tool === 'hair') void runEditorHair(state, stroke);
+  else void runEditorRerun(state, stroke);
 }
 
 function clampEditorZoom(state, scale) {
@@ -933,7 +946,8 @@ editorCanvas.addEventListener('pointerdown', (event) => {
   const tool = editorTool();
   state.stroke = {
     tool, radius, last: image, before: new Map(),
-    mask: tool === 'rerun' ? new Uint8Array(state.width * state.height) : null,
+    mask: tool === 'rerun' || tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
+    core: tool === 'hair' ? new Uint8Array(state.width * state.height) : null,
     x0: null, y0: null, x1: null, y1: null,
   };
   state.strokePointer = event.pointerId;
@@ -1079,6 +1093,7 @@ async function runEditorRerun(state, stroke) {
   stroke.mask.fill(0);
   state.busy = true;
   updateEditorControls();
+  editorBusy.textContent = '다시 보는 중…';
   showEditorHint('다시 보는 중…');
   const started = performance.now();
   let alphaResult = null;
@@ -1134,6 +1149,127 @@ async function runEditorRerun(state, stroke) {
     if (alphaResult) alphaResult.fill(0);
     if (contextAlpha) contextAlpha.fill(0);
     if (newAlpha) newAlpha.fill(0);
+  }
+}
+
+async function runEditorHair(state, stroke) {
+  if (!stroke || stroke.x0 == null) return;
+  const radius = stroke.radius;
+  const boundsWidth = stroke.x1 - stroke.x0, boundsHeight = stroke.y1 - stroke.y0;
+  const paddingX = Math.max(radius * 2, boundsWidth * 0.2);
+  const paddingY = Math.max(radius * 2, boundsHeight * 0.2);
+  const x = Math.max(0, Math.floor(stroke.x0 - paddingX));
+  const y = Math.max(0, Math.floor(stroke.y0 - paddingY));
+  const x2 = Math.min(state.width, Math.ceil(stroke.x1 + paddingX));
+  const y2 = Math.min(state.height, Math.ceil(stroke.y1 + paddingY));
+  const width = x2 - x, height = y2 - y;
+  if (width <= 0 || height <= 0) return;
+
+  const source = state.item.source;
+  const sourceX = Math.max(0, Math.floor(x * source.width / state.width));
+  const sourceY = Math.max(0, Math.floor(y * source.height / state.height));
+  const sourceX2 = Math.min(source.width, Math.ceil(x2 * source.width / state.width));
+  const sourceY2 = Math.min(source.height, Math.ceil(y2 * source.height / state.height));
+  const sourceWidth = sourceX2 - sourceX, sourceHeight = sourceY2 - sourceY;
+  const scale = Math.min(4, 1024 / Math.max(sourceWidth, sourceHeight));
+  const cropWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const cropHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+  let crop = null, previous = null, selection = null, core = null;
+  let cropAlpha = null, cropSelection = null, cropCore = null, trimap = null;
+  let matteAlpha = null, newAlpha = null, weights = null, diff = null;
+  let keepDiff = false, changed = false;
+  state.busy = true;
+  updateEditorControls();
+  editorBusy.textContent = '머리카락을 다시 보는 중…';
+  showEditorHint('머리카락을 다시 보는 중…');
+  if (!loadedModels.has('matte')) {
+    showStatus(`${MODEL_LABEL.matte} 불러오는 중 (${MODEL_SIZE.matte}, 처음 한 번만)`);
+  }
+  const started = performance.now();
+  try {
+    crop = makeCanvas(cropWidth, cropHeight);
+    const cropContext = crop.getContext('2d', { willReadFrequently: true });
+    cropContext.imageSmoothingQuality = 'high';
+    cropContext.drawImage(source, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, cropWidth, cropHeight);
+
+    const area = width * height;
+    previous = new Float32Array(area);
+    selection = new Float32Array(area);
+    core = new Float32Array(area);
+    for (let row = 0; row < height; row++) {
+      const sourceOffset = (y + row) * state.width + x;
+      const destOffset = row * width;
+      previous.set(state.alpha.subarray(sourceOffset, sourceOffset + width), destOffset);
+      selection.set(stroke.mask.subarray(sourceOffset, sourceOffset + width), destOffset);
+      core.set(stroke.core.subarray(sourceOffset, sourceOffset + width), destOffset);
+    }
+    diff = { x, y, w: width, h: height, prev: previous };
+    cropAlpha = resizeBilinear(previous, width, height, cropWidth, cropHeight);
+    cropSelection = resizeBilinear(selection, width, height, cropWidth, cropHeight);
+    cropCore = resizeBilinear(core, width, height, cropWidth, cropHeight);
+    trimap = makeTrimap(cropAlpha, cropWidth, cropHeight);
+    for (let i = 0; i < trimap.length; i++) {
+      if (cropSelection[i] > 0.5) trimap[i] = 0.5;
+      if (cropCore[i] > 0.5) trimap[i] = 1;
+    }
+    stroke.mask.fill(0);
+    stroke.core.fill(0);
+
+    matteAlpha = await runMatte(crop, trimap);
+    newAlpha = resizeBilinear(matteAlpha, cropWidth, cropHeight, width, height);
+    weights = boxBlur(selection, width, height, Math.max(2, Math.round(radius / 3)));
+    for (let i = 0; i < area; i++) {
+      const weight = Math.max(0, Math.min(1, weights[i]));
+      const next = weight * newAlpha[i] + (1 - weight) * previous[i];
+      if (Math.abs(next - previous[i]) > 1e-7) changed = true;
+      const dest = (y + Math.floor(i / width)) * state.width + x + (i % width);
+      state.alpha[dest] = next;
+      state.composite.data[dest * 4 + 3] = Math.round(next * 255);
+    }
+    state.resultContext.putImageData(state.composite, 0, 0, x, y, width, height);
+    if (changed) {
+      pushEditorUndo(state, diff);
+      keepDiff = true;
+    } else {
+      diff.prev.fill(0);
+    }
+    showEditorHint(`머리카락 처리를 마쳤습니다 · ${((performance.now() - started) / 1000).toFixed(1)}초`);
+    hideStatus();
+    drawEditor();
+  } catch (err) {
+    console.error(err);
+    hideStatus();
+    if (changed && previous) {
+      for (let row = 0; row < height; row++) {
+        const dest = (y + row) * state.width + x;
+        const src = row * width;
+        state.alpha.set(previous.subarray(src, src + width), dest);
+        for (let col = 0; col < width; col++) state.composite.data[(dest + col) * 4 + 3] = Math.round(previous[src + col] * 255);
+      }
+      state.resultContext.putImageData(state.composite, 0, 0, x, y, width, height);
+    }
+    showEditorHint(`머리카락 처리 실패: ${err.message}`, true);
+  } finally {
+    if (crop) crop.width = crop.height = 0;
+    if (stroke.mask) stroke.mask.fill(0);
+    if (stroke.core) stroke.core.fill(0);
+    if (selection) selection.fill(0);
+    if (core) core.fill(0);
+    if (cropAlpha) cropAlpha.fill(0);
+    if (cropSelection) cropSelection.fill(0);
+    if (cropCore) cropCore.fill(0);
+    if (trimap) trimap.fill(0);
+    if (matteAlpha) matteAlpha.fill(0);
+    if (newAlpha) newAlpha.fill(0);
+    if (weights) weights.fill(0);
+    if (!keepDiff && previous) previous.fill(0);
+    if (editorState === state) {
+      state.busy = false;
+      state.highlightContext.clearRect(0, 0, state.width, state.height);
+      updateEditorControls();
+      drawEditor();
+    }
   }
 }
 

@@ -112,7 +112,7 @@ button:disabled { opacity: .4; cursor: default; }
   .editor { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
   .editor-head { padding: calc(8px + env(safe-area-inset-top)) 10px 8px; }
   .editor-tools { align-items: flex-start; flex-direction: column; gap: 6px; }
-  .editor-tool { width: 100%; justify-content: space-between; }
+  .editor-tool { width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 2px; }
   .editor-tool span { padding: 7px 8px; font-size: 12px; }
   .editor-hint { margin: 6px 0; font-size: 12px; }
   .editor-options { gap: 8px; font-size: 12px; }
